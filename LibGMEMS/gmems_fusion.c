@@ -104,7 +104,7 @@ float altitudeByCompFilt(float acc, float hp, float dt, altitudeStateType* sv){
   }
 
   // Altitude error
-  eH = hp - sv->Hhat;
+  eH = hp - (sv->Hhat + dt*sv->Vhat + dt*dt*acc/2.0f);
 
   // Integrated altitude error
   sv->eHi += eH;
@@ -117,6 +117,68 @@ float altitudeByCompFilt(float acc, float hp, float dt, altitudeStateType* sv){
   dV = a * dt + KP1 * dt * eH;  //m/s
   sv->Hhat += (sv->Vhat + dV / 2.0f) * dt + KP2 * dt * eH; //m
   sv->Vhat += dV;  //m/s
+
+  return sv->Hhat;
+}
+
+/*!
+ * @brief Estimate altitude by Kalman filtering of
+ * @brief pressure altitude and vertical acceleration
+ *
+ * @param acc Vertical acceleration, g
+ * @param hp  Pressure altitude, m
+ * @param dt  Time step, sec
+ * @param sv  Altitude fusion state variable
+ *
+ * @return Altitude in m
+ *
+ */
+float altitudeByKalmanFilt(float acc, float hp, float dt, altitudeStateType* sv){
+
+  float dV, eH;
+  float p00, p01, p10, p11;
+  const float sa2 = SIGMA_ACCEL * SIGMA_ACCEL * GTOMSEC2 * GTOMSEC2;
+  const float sh2 = SIGMA_PRESS_ALT * SIGMA_PRESS_ALT;
+  const float dt2 = dt*dt;
+  const float dt3 = dt2*dt;
+  const float dt4 = dt2*dt2;
+  float s;
+
+  // Initialization
+  if(sv->resetflag){
+    sv->Hhat = hp;
+    sv->Vhat = 0.f;
+    sv->resetflag = 0;
+  }
+
+  p00 = sv->P[0][0];
+  p01 = sv->P[0][1];
+  p10 = sv->P[1][0];
+  p11 = sv->P[1][1];
+  //Predict: priori state estimate
+  dV = dt * acc * GTOMSEC2;
+  sv->Hhat += (sv->Vhat +  dV/2.0f)*dt;
+  sv->Vhat +=  dV;
+  sv->P[0][0] = p00 + dt*p10 + dt*(p01 + dt*p11) + dt4*sa2/4.f;
+  sv->P[0][1] = p01 + dt*p11 + dt3*sa2/2.f;
+  sv->P[1][0] = p10 + dt*p11 + dt3*sa2/2.f;
+  sv->P[1][1] = p11 + dt2*sa2;
+
+  //Correct: posterior state estimate
+  //Kalman gain
+  s = sv->P[0][0] + sh2;
+  sv->K[0] = sv->P[0][0] / s;
+  sv->K[1] = sv->P[1][0] / s;
+
+  sv->P[0][0] -= sv->K[0] * sv->P[0][0];
+  sv->P[0][1] -= sv->K[0] * sv->P[0][1];
+  sv->P[1][0] -= sv->K[1] * sv->P[0][0];
+  sv->P[1][1] -= sv->K[1] * sv->P[0][1];
+
+  eH = hp - sv->Hhat;
+  sv->Hhat += sv->K[0]*eH;
+  sv->Vhat += sv->K[1]*eH;
+  sv->err = hp - sv->Hhat;
 
   return sv->Hhat;
 }

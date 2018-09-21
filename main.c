@@ -214,6 +214,7 @@ void floatCatToStr(float fIn, u8 precision, u8* outStr){
 }
 
 altitudeStateType thisSV_alt;
+altitudeStateType thisSV_altKalman;
 
 /**
  * @brief   Main program
@@ -230,9 +231,9 @@ int main(void)
   s16 s16T;
   s32 s32P;
   s32 i, printIcounter = 0;
-  float fCalibParam[GMP102_CALIBRATION_PARAMETER_COUNT], fT_Celsius, fP_Pa, fBaroAlt_m, fAlt_m, fTmp;
+  float fCalibParam[GMP102_CALIBRATION_PARAMETER_COUNT], fT_Celsius, fP_Pa, fBaroAlt_m, fAlt_m, fAltKalman_m, fTmp;
   u8 str[64];
-  basicStatsType baroAltStats, fusAltStats;
+  basicStatsType baroAltStats, fusAltStats, kalmanAltStats;
   s32 i32Res;
   long lGyro[3], lAccel[3], lGyro_off[3], lAccel_off[3], quat[4];
   s16 s16Gyro[3], s16Accel[3], sensors;
@@ -385,17 +386,23 @@ int main(void)
   showMsg(0, 1, str, GRAY1, 0);
   strcpy((char*)str, "AltSTD,mm=");
   showMsg(0, 2, str, GRAY1, 0);
-  strcpy((char*)str, "hp,cm=");
+  strcpy((char*)str, "AltK,cm=");
   showMsg(0, 3, str, GRAY1, 0);
-  strcpy((char*)str, "hpSTD,mm=");
+  strcpy((char*)str, "AltKSTD,mm=");
   showMsg(0, 4, str, GRAY1, 0);
+  strcpy((char*)str, "hp,cm=");
+  showMsg(0, 5, str, GRAY1, 0);
+  strcpy((char*)str, "hpSTD,mm=");
+  showMsg(0, 6, str, GRAY1, 0);
 
   // Initialize the altitude fusion state
   initAltitude(&thisSV_alt);
+  initAltitude(&thisSV_altKalman);
 
   /* Init the statistics state variables */
   initBasicStats(&baroAltStats);
   initBasicStats(&fusAltStats);
+  initBasicStats(&kalmanAltStats);
 
   while (1){
 
@@ -424,18 +431,22 @@ int main(void)
 
       LED_GPIO_PORT->OPTDT ^= LED2_GPIO_PIN;
 
-      // Altitude fusion
+      // Altitude fusion by complimentary filter
       fAlt_m = altitudeByCompFilt(fLinearAcc[2], fBaroAlt_m, algDt, &thisSV_alt);
+
+      // Altitude fusion by Kalman filter
+      fAltKalman_m = altitudeByKalmanFilt(fLinearAcc[2], fBaroAlt_m, algDt, &thisSV_altKalman);
 
       // Calculate statistics
       calcBasicStats(fBaroAlt_m, &baroAltStats);
       calcBasicStats(fAlt_m, &fusAltStats);
+      calcBasicStats(fAltKalman_m, &kalmanAltStats);
 
       /* User message output */
       if(++printIcounter < PRINTOUT_OSR) continue;
       printIcounter = 0; //reset the counter
 
-      //Altitude from fusion of GMP102 and MPU6050
+      //Altitude from fusion of GMP102 and MPU6050 by complimentary filter
       strcpy((char*)str, "");
       itoa(fAlt_m < 0?(fAlt_m*100.f-0.5f):(fAlt_m*100.f+0.5f), str);
       strcat((char*)str, "       ");
@@ -445,19 +456,29 @@ int main(void)
       strcat((char*)str, "       ");
       showMsg(80, 2, str, BLUE, 0);
 
+      //Altitude from fusion of GMP102 and MPU6050 by Kalman filter
+      itoa(fAltKalman_m < 0?(fAltKalman_m*100.f-0.5f):(fAltKalman_m*100.f+0.5f), str);
+      strcat((char*)str, "       ");
+      showMsg(65, 3, str, BLUE, 0);
+      strcpy((char*)str, "");
+      itoa(kalmanAltStats.std*1000.f+0.5f, str);
+      strcat((char*)str, "       ");
+      showMsg(85, 4, str, BLUE, 0);
+
       //Altitude directly from GMP102
       strcpy((char*)str, "");
       itoa(fBaroAlt_m < 0?(fBaroAlt_m*100.f-0.5f):(fBaroAlt_m*100.f+0.5f), str);
       strcat((char*)str, "       ");
-      showMsg(65, 3, str, BLUE, 0);
+      showMsg(65, 5, str, BLUE, 0);
       strcpy((char*)str, "");
       itoa(baroAltStats.std*1000.f+0.5f, str);
       strcat((char*)str, "       ");
-      showMsg(80, 4, str, BLUE, 0);
+      showMsg(80, 6, str, BLUE, 0);
 
       /* Init the statistics state variables */
       initBasicStats(&baroAltStats);
       initBasicStats(&fusAltStats);
+      initBasicStats(&kalmanAltStats);
 
       LED_GPIO_PORT->OPTDT ^= LED4_GPIO_PIN;
 

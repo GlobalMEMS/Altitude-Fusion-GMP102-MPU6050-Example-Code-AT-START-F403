@@ -45,6 +45,9 @@ typedef struct
   float Vhat;     // estimated vertical velocity
   float eHi;      // integrated altitude error
   s8 resetflag;   // flag to request re-initialization on next pass
+  float P[2][2];     // state estimation error covariance
+  float K[2];        // Kalman gain
+  float err;         // residual error
 } altitudeStateType;
 
 /*!
@@ -70,6 +73,20 @@ void initAltitude(altitudeStateType* sv);
  *
  */
 float altitudeByCompFilt(float acc, float hp, float dt, altitudeStateType* sv);
+
+/*!
+ * @brief Estimate altitude by Kalman filtering of
+ * @brief pressure altitude and vertical acceleration
+ *
+ * @param acc Vertical acceleration, g
+ * @param hp  Pressure altitude, m
+ * @param dt  Time step, sec
+ * @param sv  Altitude fusion state variable
+ *
+ * @return Altitude in m
+ *
+ */
+float altitudeByKalmanFilt(float acc, float hp, float dt, altitudeStateType* sv);
 
 /*!
  * @brief Quaternion to Euler angle, Android coordinate system
